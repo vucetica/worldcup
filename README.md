@@ -1,9 +1,9 @@
 # World Cup Underdog Report
 
-A tiny, zero-dependency generator that turns three text files into one self-contained
-`index.html` report about World Cup **underdogs**, where "underdog" means a squad with a
-lower total market value. The fun is in comparing what each team's price tag says it
-*should* do against what it *actually* did.
+A tiny, zero-dependency generator that produces one self-contained `index.html` report
+about World Cup **underdogs**, where "underdog" means a squad with a lower total market
+value. The fun is in comparing what each team's price tag says it *should* do against
+what it *actually* did.
 
 ## Usage
 
@@ -11,36 +11,42 @@ lower total market value. The fun is in comparing what each team's price tag say
 node build.js
 ```
 
-That reads `teams.txt`, `groups.txt`, `matches.txt` from this folder and writes
-`index.html`. Open the file directly in a browser (no server needed) — everything
-(data, charts, styling) is baked in. Re-run after each round of results.
+That reads `teams.txt` (squad market values) from this folder, pulls the group draw and
+finished results live from ESPN, and writes `index.html`. Open the file directly in a
+browser (no server needed): everything (data, charts, styling) is baked in. Re-run after
+each round to refresh.
 
-Requires Node.js 18+. No `npm install`, no dependencies.
+Requires Node.js 18+ and network access (uses the built-in `fetch`, no API key). No
+`npm install`, no dependencies.
 
-## Getting real results automatically
+### How the data is sourced
 
-Instead of typing results by hand, pull finished games from ESPN's public API:
+`teams.txt` is the only input file you maintain; market values are not available from any
+score API. Everything else comes from ESPN's public scoreboard at build time:
 
-```bash
-node fetch-matches.js   # writes matches.txt (finished games only)
-node build.js           # matches.txt -> index.html
-```
-
-`fetch-matches.js` (Node 18+, uses built-in `fetch`, no API key):
-
-- Scans the tournament window (`START`/`END` constants at the top of the file) and
-  writes every **finished** match to `matches.txt` with the correct stage token;
-  scheduled/in-progress games are skipped.
-- Reconciles API team names against `teams.txt` ignoring accents and punctuation, plus
+- The tournament window (`START`/`END` constants in `fetch-matches.js`) is scanned for
+  **finished** matches; scheduled/in-progress games are skipped.
+- The group draw is derived from every group fixture (scheduled or played), so the bracket
+  is known before kickoff.
+- API team names are reconciled against `teams.txt` ignoring accents and punctuation, plus
   an `ALIASES` table for the genuinely different ones (e.g. `USA` → `United States`,
   `Czechia` → `Czech Republic`). Any name it can't map is printed so you can add an alias.
-- Also writes **`groups.suggested.txt`**, the real group draw derived from the matches.
-  Review it and rename it to `groups.txt` so the group analysis matches reality.
-- Detects penalty-shootout winners in tied knockout games and records who advanced.
+- Penalty-shootout winners in tied knockout games are detected and recorded as the team
+  that advanced.
 
-Re-run `fetch-matches.js` whenever you want fresh results. It overwrites `matches.txt`,
-so if you prefer to keep manual control, just don't run it. Note: the ESPN endpoint is
-unofficial and could change; if a fetch fails, `matches.txt` is left as-is from before.
+The ESPN endpoint is unofficial and could change. If it's unreachable, `build.js` exits
+non-zero rather than emitting an empty report, so the last good `index.html` stays in place.
+
+### Optional: snapshot the data to disk
+
+`fetch-matches.js` writes the same data to `matches.txt` (finished games) and
+`groups.suggested.txt` (the derived draw) if you want a local copy to inspect or hand-edit:
+
+```bash
+node fetch-matches.js   # writes matches.txt + groups.suggested.txt
+```
+
+`build.js` does not read these files; it fetches directly.
 
 ## Hosting
 
@@ -50,46 +56,24 @@ unofficial and could change; if a fetch fails, `matches.txt` is left as-is from 
 - **Netlify / Cloudflare Pages** — drag the file (or the folder) into the dashboard.
 - **S3 / any web host** — upload `index.html`.
 
-To update the live report: edit `matches.txt`, run `node build.js`, re-upload `index.html`.
+To update the live report: run `node build.js` to re-fetch, then re-upload `index.html`.
 
-## Input files
-
-Blank lines and anything after `#` are ignored in all three files.
+## Input file
 
 ### `teams.txt` — squad market values
-One team per line, `Name,marketValueInEuros` (millions written out as whole numbers):
+The one file you maintain. One team per line, `Name,marketValueInEuros` (whole numbers).
+Blank lines and anything after `#` are ignored:
 
 ```
 France,1520000000
 Qatar,19930000
 ```
 
-Team names must be unique and must match exactly across all three files.
+Team names must be unique. They are the canonical names that ESPN's results are reconciled
+against (see the `ALIASES` table in `fetch-matches.js` for spelling differences).
 
-### `groups.txt` — the draw
-One group per line, `Label: Team, Team, Team, Team`:
-
-```
-A: France, Turkey, Ghana, Tunisia
-```
-
-### `matches.txt` — results
-One match per line, `Home,HomeScore,Away,AwayScore`:
-
-```
-France,2,Tunisia,0
-Saudi Arabia,2,Germany,1
-```
-
-Optional extras:
-- **Stage prefix** (`Group`, `R32`, `R16`, `QF`, `SF`, `3P`, `Final`) for precision:
-  `R16,Morocco,1,Spain,0`. If omitted, the stage is inferred — two teams in the same
-  group is a group match; otherwise it's knockout, and knockout games are assigned to
-  bracket rounds **by file order** (so list knockouts chronologically).
-- **Penalty winner** as a 5th field on a tied knockout game:
-  `QF,France,1,England,1,France`. A tied knockout game without it is flagged in the report.
-
-The report fills in as `matches.txt` grows; sections with no data yet show a placeholder.
+The report fills in as results come in over the tournament; sections with no data yet show
+a placeholder.
 
 ## What the report shows
 

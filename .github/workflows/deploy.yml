@@ -28,15 +28,9 @@ jobs:
         with:
           node-version: 20
 
-      # Pull finished results + the real draw from ESPN. Non-fatal: if the API is
-      # unreachable, the committed sample matches.txt/groups.txt are used instead.
-      - name: Fetch live results
-        run: node fetch-matches.js || echo "fetch failed; falling back to committed data"
-
-      # Prefer the real draw when we got one.
-      - name: Use real draw if available
-        run: test -f groups.suggested.txt && cp groups.suggested.txt groups.txt || true
-
+      # build.js pulls groups + results live from ESPN itself. If the API is
+      # unreachable it exits non-zero, so no new (empty) artifact is published
+      # and the last good page stays live.
       - name: Build report
         run: node build.js
 

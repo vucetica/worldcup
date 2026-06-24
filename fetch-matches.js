@@ -45,24 +45,36 @@ const ALIASES = {
 const fail = (m) => { console.error('\n  ERROR: ' + m + '\n'); process.exit(1); };
 const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 
-function loadTeamNames() {
-  const p = path.join(__dirname, 'teams.txt');
-  if (!fs.existsSync(p)) fail('teams.txt not found — run from the project folder.');
+function buildLookup(names) {
   const lookup = new Map(); // normalized -> canonical
-  for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
-    const t = line.replace(/#.*$/, '').trim();
-    if (!t) continue;
-    const name = t.split(',')[0].trim();
-    if (name) lookup.set(norm(name), name);
-  }
+  for (const name of names) if (name) lookup.set(norm(name), name);
   for (const [k, v] of Object.entries(ALIASES)) lookup.set(k, v);
   return lookup;
 }
 
+function readTeamNames() {
+  const p = path.join(__dirname, 'teams.txt');
+  if (!fs.existsSync(p)) fail('teams.txt not found — run from the project folder.');
+  const names = [];
+  for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
+    const t = line.replace(/#.*$/, '').trim();
+    if (!t) continue;
+    const name = t.split(',')[0].trim();
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+// Placeholder competitors for undecided slots ("Round of 32 16 Winner",
+// "Semifinal 1 Loser", "Group J 2nd Place", "Third Place Group E/H/I/J/K"). Not
+// real teams — skip silently so they don't clutter the unmapped report. No
+// country name contains these tokens or a slash.
+const PLACEHOLDER = /\b(winner|loser|runner-?up|place)\b|\//i;
+
 function resolveName(apiName, lookup, unmapped) {
   const hit = lookup.get(norm(apiName));
   if (hit) return hit;
-  unmapped.add(apiName);
+  if (!PLACEHOLDER.test(apiName)) unmapped.add(apiName);
   return null;
 }
 
@@ -87,26 +99,29 @@ async function fetchDay(yyyymmdd) {
   return res.json();
 }
 
-// --- main --------------------------------------------------------------------
-async function main() {
+// --- core fetch --------------------------------------------------------------
+// Pull the tournament window from ESPN. Returns finished matches (chronological)
+// plus the group draw derived from every group fixture, scheduled or played, so
+// the bracket is known before kickoff. `teamNames` supplies the canonical names
+// used to reconcile ESPN's spellings. This is what build.js calls directly;
+// nothing here touches the filesystem.
+async function fetchWorldCup(teamNames) {
   if (typeof fetch !== 'function') fail('Global fetch missing — needs Node 18 or newer.');
-  const lookup = loadTeamNames();
+  const lookup = buildLookup(teamNames);
   const unmapped = new Set();
-  const rows = []; // { date, line }
-  const draw = new Map(); // group letter -> Set of canonical team names
-  let scanned = 0, finished = 0;
+  const rows = [];         // finished matches: { date, stage, home, hs, away, as, advance }
+  const draw = new Map();  // group letter -> Set of canonical team names
+  let scanned = 0, finished = 0, daysFailed = 0;
 
   for (const day of eachDate(START, END)) {
     let data;
     try { data = await fetchDay(day); }
-    catch (e) { console.warn('  skip ' + day + ': ' + e.message); continue; }
+    catch (e) { console.warn('  skip ' + day + ': ' + e.message); daysFailed++; continue; }
 
     for (const ev of data.events || []) {
       const comp = (ev.competitions || [])[0];
       if (!comp) continue;
       scanned++;
-      const state = comp.status && comp.status.type && comp.status.type.state;
-      if (state !== 'post' || !(comp.status.type.completed)) continue; // finished only
 
       const home = (comp.competitors || []).find((c) => c.homeAway === 'home');
       const away = (comp.competitors || []).find((c) => c.homeAway === 'away');
@@ -115,15 +130,10 @@ async function main() {
       const aName = resolveName(away.team.displayName || away.team.name, lookup, unmapped);
       if (!hName || !aName) continue;
 
-      const hs = parseInt(home.score, 10), as = parseInt(away.score, 10);
-      if (!Number.isInteger(hs) || !Number.isInteger(as)) continue;
-
       const headline = comp.altGameNote || (comp.notes && comp.notes[0] && comp.notes[0].headline) || ev.name;
       const stage = stageFromHeadline(headline);
-      const fields = [];
-      if (stage) fields.push(stage);
-      fields.push(hName, hs, aName, as);
-      // Record the real group draw for groups.suggested.txt.
+
+      // Record the group draw from every group fixture, even before kickoff.
       if (stage === 'Group') {
         const gm = /group\s+([a-z])/i.exec(headline);
         if (gm) {
@@ -132,30 +142,58 @@ async function main() {
           draw.get(g).add(hName); draw.get(g).add(aName);
         }
       }
+
+      // Results: finished games with numeric scores only.
+      const state = comp.status && comp.status.type && comp.status.type.state;
+      if (state !== 'post' || !(comp.status.type.completed)) continue;
+      const hs = parseInt(home.score, 10), as = parseInt(away.score, 10);
+      if (!Number.isInteger(hs) || !Number.isInteger(as)) continue;
+
       // Tied knockout: record who advanced (penalty shootout winner flag).
-      if (stage && stage !== 'Group' && hs === as) {
-        const adv = home.winner ? hName : away.winner ? aName : null;
-        if (adv) fields.push(adv);
-      }
-      rows.push({ date: ev.date || day, line: fields.join(',') });
+      let advance = null;
+      if (stage && stage !== 'Group' && hs === as)
+        advance = home.winner ? hName : away.winner ? aName : null;
+
+      rows.push({ date: ev.date || day, stage, home: hName, hs, away: aName, as, advance });
       finished++;
     }
   }
 
   rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  // Don't blank an existing matches file when nothing has finished yet (e.g. before
-  // the tournament or in a scheduled CI run); leave whatever is already there.
+  return { rows, draw, unmapped, scanned, finished, daysFailed };
+}
+
+function reportUnmapped(unmapped) {
+  if (!unmapped.size) return;
+  console.log('\n  Unmapped team names (add to the ALIASES table in fetch-matches.js):');
+  for (const n of unmapped) console.log('    - "' + n + '"  (normalized: ' + norm(n) + ')');
+}
+
+// --- CLI ---------------------------------------------------------------------
+// Writes matches.txt (+ groups.suggested.txt) for anyone who wants the data on
+// disk. build.js no longer needs this — it calls fetchWorldCup() directly.
+async function cli() {
+  const names = readTeamNames();
+  const { rows, draw, unmapped, scanned, finished } = await fetchWorldCup(names);
+
   if (finished === 0) {
     console.log('No finished matches in the window — left ' + path.basename(OUT) + ' unchanged.');
-    return;
+  } else {
+    const header = [
+      '# Auto-generated by fetch-matches.js from ESPN (' + START + ' to ' + END + ').',
+      '# Re-run `node fetch-matches.js` to refresh, then `node build.js`.',
+      '# Hand-edit if you like — but a re-fetch overwrites this file.',
+      '',
+    ];
+    const lines = rows.map((r) => {
+      const f = [];
+      if (r.stage) f.push(r.stage);
+      f.push(r.home, r.hs, r.away, r.as);
+      if (r.advance) f.push(r.advance);
+      return f.join(',');
+    });
+    fs.writeFileSync(OUT, header.concat(lines).join('\n') + '\n');
   }
-  const header = [
-    '# Auto-generated by fetch-matches.js from ESPN (' + START + ' to ' + END + ').',
-    '# Re-run `node fetch-matches.js` to refresh, then `node build.js`.',
-    '# Hand-edit if you like — but a re-fetch overwrites this file.',
-    '',
-  ];
-  fs.writeFileSync(OUT, header.concat(rows.map((r) => r.line)).join('\n') + '\n');
 
   // Write the real draw (non-destructive) for the user to review/rename.
   if (draw.size) {
@@ -168,13 +206,11 @@ async function main() {
 
   console.log('Fetched World Cup results from ESPN');
   console.log('  finished matches: ' + finished + ' (of ' + scanned + ' scanned)');
-  console.log('  wrote: ' + path.relative(process.cwd(), OUT));
+  if (finished) console.log('  wrote: ' + path.relative(process.cwd(), OUT));
   if (draw.size) console.log('  draw: ' + draw.size + ' groups -> groups.suggested.txt');
-  if (unmapped.size) {
-    console.log('\n  Unmapped team names (add to the ALIASES table in fetch-matches.js):');
-    for (const n of unmapped) console.log('    - "' + n + '"  (normalized: ' + norm(n) + ')');
-  }
-  if (finished === 0) console.log('\n  No finished matches yet in the window — the report will show placeholders.');
+  reportUnmapped(unmapped);
 }
 
-main().catch((e) => fail(e.message));
+module.exports = { fetchWorldCup, readTeamNames, reportUnmapped, START, END };
+
+if (require.main === module) cli().catch((e) => fail(e.message));
