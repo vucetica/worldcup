@@ -1,0 +1,50 @@
+# World Cup squad market values
+# Format: TeamName,marketValueInEuros   (one per line, # = comment)
+France,1520000000
+England,1360000000
+Spain,1220000000
+Portugal,1010000000
+Germany,947000000
+Brazil,928200000
+Argentina,807500000
+Netherlands,754200000
+Norway,589900000
+Belgium,547500000
+Ivory Coast,522100000
+Senegal,478100000
+Turkey,473700000
+Morocco,447700000
+Sweden,406080000
+Croatia,387300000
+United States,385600000
+Ecuador,368700000
+Uruguay,359300000
+Switzerland,332500000
+Colombia,302350000
+Japan,270850000
+Algeria,256900000
+Austria,245200000
+Ghana,234500000
+Canada,198650000
+Mexico,191850000
+Czech Republic,188180000
+Scotland,170250000
+Paraguay,153650000
+Bosnia & Herzegovina,146400000
+DR Congo,143900000
+South Korea,139050000
+Egypt,116480000
+Uzbekistan,85330000
+Australia,77450000
+Tunisia,69950000
+Haiti,55900000
+Cape Verde,49250000
+South Africa,49250000
+Saudi Arabia,40680000
+Panama,34550000
+New Zealand,34450000
+Iran,32050000
+Curacao,25780000
+Iraq,21200000
+Jordan,20300000
+Qatar,19930000

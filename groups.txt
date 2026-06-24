@@ -1,0 +1,14 @@
+# Group draw. Format: Label: Team, Team, Team, Team   (# = comment)
+# This is a SAMPLE draw using all 48 teams. Replace with the real draw.
+A: France, Turkey, Ghana, Tunisia
+B: England, Morocco, Canada, Haiti
+C: Spain, Sweden, Mexico, Cape Verde
+D: Portugal, Croatia, Czech Republic, South Africa
+E: Germany, United States, Scotland, Saudi Arabia
+F: Brazil, Ecuador, Paraguay, Panama
+G: Argentina, Uruguay, Bosnia & Herzegovina, New Zealand
+H: Netherlands, Switzerland, DR Congo, Iran
+I: Norway, Colombia, South Korea, Curacao
+J: Belgium, Japan, Egypt, Iraq
+K: Ivory Coast, Algeria, Uzbekistan, Jordan
+L: Senegal, Austria, Australia, Qatar
