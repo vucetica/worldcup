@@ -321,7 +321,7 @@ function renderHTML(data, meta) {
     <div class="slide-content">
       <span class="kicker reveal">World Cup 2026 · a market-value study</span>
       <h1 class="reveal">THE<br><span class="hl">UNDERDOG</span><br>REPORT</h1>
-      <p class="hero-sub reveal">When the money says one thing<br>and the pitch says another.</p>
+      <p class="hero-sub reveal">When the price says one thing<br>and the pitch says another.</p>
       <div class="hero-stats reveal">
         <div class="hstat"><span class="count" data-to="${meta.teamCount}">0</span><label>teams</label></div>
         <div class="hstat"><span class="count" data-to="${matchCount}">0</span><label>matches</label></div>
